@@ -114,7 +114,7 @@ export default {
 			const cacheKey = `cardData_${TRELLO_BOARD_ID}`;
 			let cached = await MY_CACHE.get(cacheKey, 'json');
 			if (cached && typeof cached === 'object') {
-				// return cached;
+				return cached;
 			}
 
 			const response = await fetch(
