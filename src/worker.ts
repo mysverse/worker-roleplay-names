@@ -6,6 +6,7 @@ export interface Env {
 
 interface RoleplayNameData {
 	roleplayName: string;
+	properties?: { [k: string]: string };
 	userName: string;
 	description?: string;
 }
@@ -15,38 +16,77 @@ export default {
 		const { TRELLO_BOARD_ID, AMAZING_FIELDS_TOKEN, MY_CACHE } = env;
 		console.assert(typeof TRELLO_BOARD_ID !== 'undefined' && typeof AMAZING_FIELDS_TOKEN !== 'undefined');
 
+		function parseDetails(details: string) {
+			const lines = details.split('\n').filter((line) => line.trim() !== ''); // Split by newline and filter out empty lines
+			const obj: { [k: string]: string } = {};
+			let currentKey: string | undefined = undefined;
+
+			lines.forEach((line) => {
+				if (line.includes(':')) {
+					const [key, value] = line.split(':').map((part) => part.trim()); // Split by colon and trim whitespace
+					currentKey = key.replace(/\*\*/g, ''); // Remove markdown asterisks and set as the current key
+					if (currentKey) {
+						const newValue = value.replace(/\*\*/g, '').trim();
+						if (newValue.length > 0) {
+							obj[currentKey] = value.replace(/\*\*/g, '').trim(); // Assign the initial value for this key
+						}
+					}
+				} else {
+					// If no colon is present, it's a continuation of the last key's value
+					if (currentKey) {
+						obj[currentKey] += ', ' + line.trim(); // Append this line to the existing value of the current key
+					}
+				}
+			});
+
+			if (Object.keys(obj).length > 0) {
+				return obj;
+			}
+
+			return undefined;
+		}
+
 		function processData(data: any[]) {
 			return data
 				.map((item: any) => {
-					const amazingFields = item['amazingFields'];
-					if (amazingFields && amazingFields.fields) {
-						const fields = amazingFields.fields as any[];
-						let ign: string | undefined = undefined;
-						for (const field of fields) {
-							if (field.name === 'IGN') {
-								ign = field.value;
-								break;
-							}
+					let ign: string | undefined = undefined;
+					let description = item.desc as string | undefined;
+					if (description) {
+						if (description.replaceAll(/\s/g, '').length === 0) {
+							description = undefined;
 						}
-						if (ign) {
-							const roleplayName = item.name;
-							let description = item.desc as string | undefined;
-							if (description) {
-								if (description.replaceAll(/\s/g, '').length === 0) {
-									description = undefined;
+					}
+					let properties = description ? parseDetails(description) : undefined;
+					if (properties) {
+						const propertiesIgn = properties['IGN'];
+						if (propertiesIgn) {
+							ign = propertiesIgn;
+						}
+					}
+					if (typeof ign === 'undefined') {
+						const amazingFields = item['amazingFields'];
+						if (amazingFields && amazingFields.fields) {
+							const fields = amazingFields.fields as any[];
+							for (const field of fields) {
+								if (field.name === 'Honorary Titles') {
+									ign = field.value;
+									break;
 								}
-							}
-							if (roleplayName && roleplayName !== 'Template') {
-								const returned: RoleplayNameData = {
-									roleplayName,
-									userName: ign,
-									description,
-								};
-								return returned;
 							}
 						}
 					}
-					return undefined;
+					if (ign) {
+						const roleplayName = item.name;
+						if (roleplayName && roleplayName !== 'Template') {
+							const returned: RoleplayNameData = {
+								roleplayName,
+								userName: ign,
+								properties,
+								// description,
+							};
+							return returned;
+						}
+					}
 				})
 				.filter((item): item is RoleplayNameData => !!item);
 		}
@@ -74,13 +114,15 @@ export default {
 			const cacheKey = `cardData_${TRELLO_BOARD_ID}`;
 			let cached = await MY_CACHE.get(cacheKey, 'json');
 			if (cached && typeof cached === 'object') {
-				return cached;
+				// return cached;
 			}
+
 			const response = await fetch(
 				`https://api.amazingpowerups.com/api/data/v1/boards/${TRELLO_BOARD_ID}/cards?token=${AMAZING_FIELDS_TOKEN}`
 			);
 
 			if (!response.ok) {
+				console.error(await response.json());
 				throw new Error('Failed to fetch data from API');
 			}
 
@@ -101,7 +143,7 @@ export default {
 				})
 				.filter((item) => !!item);
 
-			await MY_CACHE.put(cacheKey, JSON.stringify(memberDetails), { expirationTtl: 3600 }); // Cache for 1 hour
+			await MY_CACHE.put(cacheKey, JSON.stringify(memberDetails), { expirationTtl: 60 }); // Cache for 1 minute
 
 			return memberDetails;
 		}
