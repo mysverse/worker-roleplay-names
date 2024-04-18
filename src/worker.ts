@@ -1,5 +1,6 @@
 export interface Env {
-	AMAZING_FIELDS_TOKEN?: string;
+	TRELLO_API_KEY?: string;
+	TRELLO_API_TOKEN?: string;
 	TRELLO_BOARD_ID?: string;
 	MY_CACHE: KVNamespace;
 }
@@ -13,8 +14,7 @@ interface RoleplayNameData {
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		const { TRELLO_BOARD_ID, AMAZING_FIELDS_TOKEN, MY_CACHE } = env;
-		console.assert(typeof TRELLO_BOARD_ID !== 'undefined' && typeof AMAZING_FIELDS_TOKEN !== 'undefined');
+		const { TRELLO_BOARD_ID, TRELLO_API_KEY, TRELLO_API_TOKEN, MY_CACHE } = env;
 
 		function parseDetails(details: string) {
 			const lines = details.split('\n').filter((line) => line.trim() !== ''); // Split by newline and filter out empty lines
@@ -61,8 +61,10 @@ export default {
 						const propertiesIgn = properties['IGN'];
 						if (propertiesIgn) {
 							ign = propertiesIgn;
+							delete properties['IGN'];
 						}
 					}
+
 					if (typeof ign === 'undefined') {
 						const amazingFields = item['amazingFields'];
 						if (amazingFields && amazingFields.fields) {
@@ -75,6 +77,7 @@ export default {
 							}
 						}
 					}
+
 					if (ign) {
 						const roleplayName = item.name;
 						if (roleplayName && roleplayName !== 'Template') {
@@ -113,13 +116,25 @@ export default {
 		async function fetchAndCacheCards() {
 			const cacheKey = `cardData_${TRELLO_BOARD_ID}`;
 			let cached = await MY_CACHE.get(cacheKey, 'json');
+
 			if (cached && typeof cached === 'object') {
 				return cached;
 			}
 
-			const response = await fetch(
-				`https://api.amazingpowerups.com/api/data/v1/boards/${TRELLO_BOARD_ID}/cards?token=${AMAZING_FIELDS_TOKEN}`
-			);
+			const url = new URL(`https://api.trello.com/1/boards/${TRELLO_BOARD_ID}/cards`);
+
+			if (!TRELLO_API_KEY) {
+				throw new Error('No Trello API key');
+			}
+
+			if (!TRELLO_API_TOKEN) {
+				throw new Error('No Trello API token');
+			}
+
+			url.searchParams.set('key', TRELLO_API_KEY);
+			url.searchParams.set('token', TRELLO_API_TOKEN);
+
+			const response = await fetch(`https://api.trello.com/1/boards/${TRELLO_BOARD_ID}/cards`);
 
 			if (!response.ok) {
 				console.error(await response.json());
@@ -128,7 +143,7 @@ export default {
 
 			const data = (await response.json()) as any;
 
-			const members = processData(data.cards);
+			const members = processData(data);
 			const usernames = members.map((member) => member.userName);
 			const userIds = await getUserIds(usernames);
 
@@ -150,7 +165,6 @@ export default {
 
 		try {
 			const data = (await fetchAndCacheCards()) as any;
-
 			return new Response(JSON.stringify(data), {
 				headers: { 'Content-Type': 'application/json' },
 			});
