@@ -95,21 +95,35 @@ export default {
 		}
 
 		async function getUserIds(usernames: string[]) {
-			const response = await fetch(`https://users.roblox.com/v1/usernames/users`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify({ usernames: usernames, excludeBannedUsers: true }),
-			});
+			const CHUNK_SIZE = 100;
+			const results: { requestedUsername: string; username: string; id: number }[] = [];
 
-			if (!response.ok) {
-				console.error('Failed to fetch user IDs');
-				return [];
+			for (let i = 0; i < usernames.length; i += CHUNK_SIZE) {
+				const chunk = usernames.slice(i, i + CHUNK_SIZE);
+				const response = await fetch(`https://users.roblox.com/v1/usernames/users`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify({ usernames: chunk, excludeBannedUsers: true }),
+				});
+
+				if (!response.ok) {
+					console.error(`Failed to fetch user IDs for chunk starting at index ${i}`);
+					continue; // Optionally, you can decide how to handle errors per chunk
+				}
+
+				const data: any = await response.json();
+				const chunkResults = data.data.map((user: any) => ({
+					requestedUsername: user.requestedUsername,
+					username: user.name,
+					id: user.id,
+				}));
+
+				results.push(...chunkResults);
 			}
 
-			const data = (await response.json()) as any;
-			return data.data.map((user: any) => ({ requestedUsername: user.requestedUsername, username: user.name, id: user.id }));
+			return results;
 		}
 
 		// Function to handle fetching and caching card data
